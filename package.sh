@@ -10,4 +10,4 @@ cd package
 find . -type f -exec sha256sum {} \; >> SHA256SUMS
 cd ..
 
-tar czf "example-extension-${version}.tgz" package
+tar czf "moziot-deepspeech-${version}.tgz" package

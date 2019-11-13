@@ -1,22 +1,11 @@
-<div id="extension-example-extension-content">
-  <div id="extension-example-extension-request">
-    <h2>Echo Request</h2>
-    <div id="extension-example-extension-form-content">
-      <label for="key">Key: </label>
-      <input type="text" name="key" id="extension-example-extension-form-key" required>
-      <br>
-      <label for="value">Value: </label>
-      <input type="text" name="value" id="extension-example-extension-form-value" required>
-      <br>
-      <button type="button" id="extension-example-extension-form-submit">Send</button>
+<div id="extension-moziot-deepspeech-content">
+  <div id="extension-moziot-deepspeech-request">
+    <h2>Voice Command</h2>
+    <div id="extension-moziot-deepspeech-form-content">
+      <button type="button" id="extension-moziot-deepspeech-record">Start</button>
+      <pre id="extension-moziot-deepspeech-response-data"></pre>
+      <p>This requires that you are on the same network as the gateway, so that local WebSocket can be established. You may have to override some certificate checks. Please try and connect to:</p>
+      <a id="url"></a>
     </div>
-  </div>
-
-  <br>
-  <br>
-
-  <div id="extension-example-extension-response">
-    <h2>Echo Response</h2>
-    <pre id="extension-example-extension-response-data"></pre>
   </div>
 </div>

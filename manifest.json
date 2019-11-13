@@ -1,5 +1,5 @@
 {
-  "author": "Mozilla IoT",
+  "author": "Mozilla DeepSpeech",
   "content_scripts": [
     {
       "css": [
@@ -10,7 +10,7 @@
       ]
     }
   ],
-  "description": "Example extension add-on for Mozilla WebThings Gateway",
+  "description": "DeepSpeech add-on for Mozilla WebThings Gateway",
   "gateway_specific_settings": {
     "webthings": {
       "exec": "{nodeLoader} {path}",
@@ -19,13 +19,13 @@
       "strict_min_version": "0.10.0"
     }
   },
-  "homepage_url": "https://github.com/mozilla-iot/example-extension",
-  "id": "example-extension",
+  "homepage_url": "https://github.com/lissyx/moziot-deepspeech",
+  "id": "moziot-deepspeech",
   "license": "MPL-2.0",
   "manifest_version": 1,
-  "name": "Example Extension",
-  "short_name": "Example",
-  "version": "0.0.3",
+  "name": "DeepSpeech MozIoT",
+  "short_name": "DeepSpeech",
+  "version": "0.6",
   "web_accessible_resources": [
     "css/*.css",
     "images/*.svg",

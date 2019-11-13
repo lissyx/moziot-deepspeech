@@ -1,8 +1,8 @@
-#main-menu #extension-example-extension-menu-item {
+#main-menu #extension-moziot-deepspeech-menu-item {
   background-image: url('../images/menu-icon.svg');
 }
 
-#extension-example-extension-view {
+#extension-moziot-deepspeech-view {
   height: calc(100% - 7.6rem);
   box-sizing: border-box;
   overflow: auto;
@@ -10,7 +10,7 @@
   top: 7.6rem;
 }
 
-#extension-example-extension-content {
+#extension-moziot-deepspeech-content {
   position: relative;
   top: calc(50% - 7.6rem);;
   transform: translateY(-50%);
@@ -22,7 +22,7 @@
   margin: 0 auto;
 }
 
-#extension-example-extension-form-submit {
+#extension-moziot-deepspeech-form-submit {
   font-size: 1.6rem;
   padding: 0.5rem 1rem;
   border: none;

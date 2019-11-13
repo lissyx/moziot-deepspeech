@@ -1,5 +1,5 @@
 /**
- * index.js - Loads the example API handler.
+ * index.js - Loads the DeepSpeech API handler.
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -8,8 +8,8 @@
 
 'use strict';
 
-const ExampleAPIHandler = require('./example-api-handler');
+const DsAdapter = require('./ds-adapter');
 
 module.exports = (addonManager) => {
-  new ExampleAPIHandler(addonManager);
+  new DsAdapter(addonManager);
 };
