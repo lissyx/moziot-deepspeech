@@ -4,45 +4,107 @@ const {APIHandler, APIResponse} = require('gateway-addon');
 const manifest = require('./manifest.json');
 const path = require('path');
 const fs = require('fs');
-
-const Ds = require('deepspeech');
-
-const Sox = require('sox-stream');
-const MemoryStream = require('memory-stream');
-const Duplex = require('stream').Duplex;
-
-function bufferToStream(buffer) {
-  var stream = new Duplex();
-  stream.push(buffer);
-  stream.push(null);
-  return stream;
-}
+const matrix = require("@matrix-io/matrix-lite");
+const cp = require('child_process');
+const webSocket = require('ws')
 
 class DSAPIHandler extends APIHandler {
   constructor(addonManager) {
     super(addonManager, manifest.id);
     addonManager.addAPIHandler(this);
-    this.setup();
-    this.loadModel();
-    this.startWebSocket();
+    this._wsPort = 3000;
+    this._dsWorker = null;
+    this.setup().then(() => {
+      console.log('Waiting 10 secs to setup things ...');
+      setTimeout(() => {
+        this._dsWorker = cp.fork(`${__dirname}/deepspeech.js`, [ this._modelsDir, this._wsPort ]);
+        this._dsWorker.on('close', (code, signal) => {
+          console.log(`child process terminated due to receipt of signal ${signal} with exit code ${code}`);
+        });
+      }, 10*1000);
+    });
   }
 
-  setup() {
+  async setup() {
     const modelsDir = path.join(this.userProfile.dataDir, manifest.id, 'models');
     console.log('Checking existence of models under ' + modelsDir);
 
-    if (!fs.existsSync(modelsDir)) {
-      fs.mkdirSync(modelsDir);
-    }
-
-    if (!fs.existsSync('/usr/bin/sox')) {
-      throw new Error("Missing sox binary");
-    }
-
     this._modelsDir = modelsDir;
 
-    this._wsPort = 3000;
-    this._wsHost = 'gateway.local';
+    if (!fs.existsSync(modelsDir)) {
+      fs.mkdirSync(modelsDir);
+      await this.downloadModel(modelsDir);
+    }
+  }
+
+  async downloadModel(rootDir) {
+    const fetch = require('node-fetch');
+    const unzip = require('unzipper');
+
+    const kTflite = 'output_graph.tflite';
+    const kInfos  = 'info.json';
+
+    const kModelURL = 'https://github.com/lissyx/DeepSpeech/releases/download/v0.6.0/en-us.zip';
+    const kModelDir = path.join(rootDir, 'en-us');
+    const kModelFile = path.join(kModelDir, kTflite);
+    const kModelZip = path.join(kModelDir, 'en-us.zip');
+
+    if (fs.existsSync(kModelFile)) {
+      console.log('Model file exists: ' + kModelFile);
+      return;
+    }
+
+    console.log('Model file does not exists: ' + kModelFile);
+    fs.mkdirSync(kModelDir);
+
+    console.debug('fetching ' + kModelURL);
+    const res = await fetch(kModelURL);
+    await new Promise((resolve, reject) => {
+      const fStream = fs.createWriteStream(kModelZip);
+      console.debug('opening stream to ' + kModelZip);
+      res.body.pipe(fStream);
+      console.debug('writing stream to ' + kModelZip);
+      res.body.on('error', (err) => {
+        console.debug('download failure ' + err);
+        reject(err);
+      });
+      console.debug('waiting stream to ' + kModelZip);
+      fStream.on('finish', function() {
+        console.debug('download success');
+        let hasModel = false;
+        let hasInfos = false;
+        fs.createReadStream(kModelZip)
+        .pipe(unzip.Parse())
+        .on('entry', (entry) => {
+          console.debug('archive entry: ' + entry.path);
+          if (entry.path == kTflite || entry.path == kInfos) {
+            entry.pipe(fs.createWriteStream(path.join(kModelDir, entry.path)))
+            .on('finish', () => {
+              console.debug('archive entry: ' + entry.path + ' finished');
+
+              if (entry.path == kTflite) {
+                hasModel = true;
+              }
+
+              if (entry.path == kInfos) {
+                hasInfos = true;
+              }
+
+              console.debug('archive hasModel:' + hasModel + ' -- hasInfos:' + hasInfos);
+              if (hasModel && hasInfos) {
+                resolve();
+              }
+            });
+          } else {
+            entry.autodrain();
+          }
+        });
+      });
+    });
+
+    console.debug('should run after finished stream to ' + kModelZip);
+    fs.unlinkSync(kModelZip);
+    console.debug('removed ' + kModelZip);
   }
 
   async generateLocalLM(devices) {
@@ -94,7 +156,7 @@ class DSAPIHandler extends APIHandler {
              gi = gii_true_false.replace(/<boolean>/g, bool).toLowerCase();
 
              if (finalGrammar.indexOf(gi) < 0) {
-               console.log('for ' + tag + ': ' + gi);
+               // console.log('for ' + tag + ': ' + gi);
                finalGrammar.push(gi);
              }
            });
@@ -112,7 +174,7 @@ class DSAPIHandler extends APIHandler {
     const { spawnSync} = require('child_process');
 
     const child_lmplz = spawnSync(path.join(binDir, 'lmplz'), [
-        '--memory', '1%',
+        '--memory', '64M',
         '--order', '2', '--discount_fallback',
         '--text', localLMTxt,
         '--arpa', localLMArpa
@@ -132,116 +194,75 @@ class DSAPIHandler extends APIHandler {
     console.log('binary stderr ', child_binary.stderr.toString());
   }
 
-  loadModel() {
-    this._modelRoot = path.join(this._modelsDir, 'en-us');
-    this._modelJson = JSON.parse(fs.readFileSync(path.join(this._modelRoot, 'info.json')));
-    this._model = new Ds.Model(path.join(this._modelRoot, 'output_graph.tflite'), 500);
-    this._model.enableDecoderWithLM(path.join(this._modelRoot, 'local_lm.binary'),
-                                    path.join(this._modelRoot, 'local_lm.trie'),
-                                    this._modelJson['parameters']['lmAlpha'],
-                                    this._modelJson['parameters']['lmBeta']);
-  }
+  startMatrixMic() {
+    console.log("About to start Matrix mic");
 
-  startWebSocket() {
-    const express = require('express');
-    const https = require('https');
-    const options = {
-      key: fs.readFileSync(path.join(this.userProfile.baseDir, 'ssl', 'privatekey.pem')),
-      cert: fs.readFileSync(path.join(this.userProfile.baseDir, 'ssl', 'certificate.pem'))
-    };
+    this._ws = new webSocket('ws://127.0.0.1:' + this._wsPort + '/stream');
 
-    const app = express();
-    const sslServer = https.createServer(options, app);
-    const ws = require('express-ws')(app, sslServer);
+    this._ws.on('message', (m) => {
+      const msg = JSON.parse(m);
+      console.log("Received message: " + m);
 
-    sslServer.listen(this._wsPort, () => {
-      console.log("Server listening on port 3000");
-    });
-
-    this._seq = 0;
-    app.ws('/stream', this.handleWsStream.bind(this));
-  }
-
-  handleWsStream(ws, req) {
-    const dsStream   = this._model.createStream();
-    const sampleRate = this._model.sampleRate();
-
-    const interimTimer = setInterval(() => {
-      let transcript = this._model.intermediateDecode(dsStream);
-      console.debug('transcript', transcript);
-      ws.send(JSON.stringify({"interimtranscript": transcript}));
-    }, 2*1000);
-
-    ws.on('message', (rawAudio) => {
-      let typeOfMessage = typeof rawAudio;
-      console.log('Received data of type: ' + typeOfMessage);
-
-      // Detect when it is time to finish
-      if (typeOfMessage === 'string' && rawAudio === 'end') {
-        clearInterval(interimTimer);
-        let transcript = this._model.finishStream(dsStream);
-        console.debug('transcript', transcript);
-        ws.send(JSON.stringify({"finaltranscript": transcript}));
-        return;
-      }
-
-      /*            
-      fs.writeFile("/tmp/deepspeech_dump_" + this._seq + ".raw", rawAudio, "binary", function(err) {
-        if(err) {
-            return console.log(err);
-        }
-        console.log("The file was saved!");
-      });
-      */
-
-      try {
-        var audioStream = new MemoryStream();
-        bufferToStream(rawAudio).
-          pipe(Sox({
-            input: {
-              bits: 32,
-              rate: 44100,
-              channels: 1,
-              encoding: 'floating-point',
-              endian: 'little',
-              type: 'raw',
-            },
-            output: {
-              bits: 16,
-              rate: sampleRate,
-              channels: 1,
-              encoding: 'signed-integer',
-              endian: 'little',
-              compression: 0.0,
-              type: 'wavpcm',
-            }
-          })).
-          pipe(audioStream);
-
-        audioStream.on('finish', () => {
-          let audioBuffer = audioStream.toBuffer();
-
-          console.debug('audioBuffer', audioBuffer.length);
-          this._model.feedAudioContent(dsStream, audioBuffer.slice(0, audioBuffer.length / 2));
-
-          this._seq++;
+      if (msg['sampleRate']) {
+        const modelSampleRate = msg['sampleRate'];
+        console.log('Setting sample rate to: ' + modelSampleRate);
+        this._mic = matrix.alsa.mic({ // or configure settings
+          endian: 'little',
+          encoding: 'signed-integer',
+          device: 'plughw:CARD=MATRIXIOSOUND,DEV=0',
+          bitwidth: 16,
+          rate: modelSampleRate,
+          debug: false,
+          exitOnSilence: 96, // in frames
+          // up to 8 channels
+          channels: 1
         });
-      } catch (err) {
-        console.debug('audio error', err);
+
+        // Pipe mic data to file
+        var micStream = this._mic.getAudioStream();
+        micStream.pipe(webSocket.createWebSocketStream(this._ws));
+
+        micStream.on('silence', () => {
+          console.log("Got SIGNAL silence");
+          this.stopMatrixMic();
+        });
+
+        this._mic.start();
+        console.log("Matrix mic started");
+      }
+
+      if (msg['trasncript']) {
+        console.log('Computed transcript was: ' + msg['trasncript']);
       }
     });
 
-    ws.on('close', (data) => {
-      console.log('websocket closed by client');
+    this._ws.on('open', () => {
+      this._ws.send('sample-rate');
     });
+  }
+
+  stopMatrixMic() {
+    console.log("About to stop Matrix mic");
+    this._mic && this._mic.stop();
+    this._ws && this._ws.send("end");
+    console.log("Matrix mic stopped");
   }
 
   async handleRequest(request) {
-    if (request.method === 'GET' && request.path === '/websocket') {
+    console.log('request.method=' + request.method + " -- request.path=" + request.path);
+    if (request.method === 'POST' && request.path === '/micControl') {
+      console.log('request.body=' + JSON.stringify(request.body));
+      if (request.body["status"] === true) {
+        this.startMatrixMic();
+      } else {
+        this.stopMatrixMic();
+      }
+
+      const newStatus = request.body["status"] ? 'recording' : 'stopped';
       return new APIResponse({
         status: 200,
         contentType: 'application/json',
-        content: JSON.stringify({'url': 'wss://' + this._wsHost + ':' + this._wsPort + '/stream'}),
+        content: JSON.stringify({'status': newStatus}),
       });
     }
 

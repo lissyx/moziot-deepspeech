@@ -17,7 +17,11 @@
   "homepage": "https://github.com/lissyx/moziot-deepspeech",
   "license": "MPL-2.0",
   "dependencies": {
-    "deepspeech": "0.6.1"
+    "deepspeech": "0.6.1",
+    "@matrix-io/matrix-lite": "0.4.6",
+    "ws": "7.2.1",
+    "node-fetch": "2.6.0",
+    "unzipper": "0.10.10"
   },
   "devDependencies": {
     "babel-eslint": "^10.0.3",
